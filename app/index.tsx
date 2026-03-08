@@ -25,8 +25,7 @@ export default function LoginScreen() {
       const [vaultPda] = getMerchantVaultPda(new PublicKey(pubKey))
       const info = await conn.getAccountInfo(vaultPda)
 
-      // VŽDY uložíme peňaženku do kontextu
-      await setWallet(pubKey)
+      setWallet(pubKey) // ChatGPT FIX: Bez await pre rýchlejšiu reakciu
 
       if (info) {
         router.replace('/dashboard')
@@ -34,8 +33,7 @@ export default function LoginScreen() {
         router.replace('/merchant-setup')
       }
     } catch (e) {
-      // Fallback pre sieťové chyby
-      await setWallet(pubKey)
+      setWallet(pubKey)
       router.replace('/dashboard')
     }
   }
@@ -47,7 +45,8 @@ export default function LoginScreen() {
     try {
       await transact(async (wallet) => {
         const auth = await wallet.authorize({ cluster: 'devnet', identity: { name: 'SubscribeSol', uri: 'https://subscribesol.com' } })
-        const pubKey = new PublicKey(Buffer.from(auth.accounts[0].address, 'base64')).toBase58()
+        const pubKeyBytes = Buffer.from(auth.accounts[0].address, 'base64')
+        const pubKey = new PublicKey(pubKeyBytes).toBase58()
         await checkStatusAndNavigate(pubKey)
       })
     } catch (e) {
