@@ -23,6 +23,15 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "37a9d4c7-f98c-4194-a524-f32d6f5e2bd0"
+      }
+    },
+    "owner": "subscribesol"
   }
 }

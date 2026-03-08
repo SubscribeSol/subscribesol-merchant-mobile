@@ -2,24 +2,19 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { View, Text, StyleSheet, Pressable, Dimensions, Alert, ActivityIndicator, ScrollView, RefreshControl, TextInput, Switch } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { LinearGradient } from 'expo-linear-gradient'
-import { router, useLocalSearchParams } from 'expo-router'
+import { router } from 'expo-router'
 import { Connection, PublicKey, LAMPORTS_PER_SOL, Transaction, TransactionInstruction } from '@solana/web3.js'
 import { transact } from '@solana-mobile/mobile-wallet-adapter-protocol'
 import { PROGRAM_ID, USDC_MINT, HAHICO_MINT, getAssociatedTokenAddress, disc8 } from '../lib/solana-utils'
 import { Buffer } from 'buffer'
-import AsyncStorage from '@react-native-async-storage/async-storage'
+import { useWallet } from '../context/WalletContext'
 
 const { width } = Dimensions.get('window')
-const RPC_LIST = [
-  'https://devnet.helius-rpc.com/?api-key=7600cbdf-8694-4694-8bf4-869db0600000',
-  'https://api.devnet.solana.com'
-]
-
-const PLAN_DAILY = 1; const PLAN_WEEKLY = 2; const PLAN_MONTHLY = 4; const PLAN_YEARLY = 8;
+const RPC_LIST = ['https://devnet.helius-rpc.com/?api-key=7600cbdf-8694-4694-8bf4-869db0600000', 'https://api.devnet.solana.com']
 
 export default function DashboardScreen() {
-  const params = useLocalSearchParams<{ wallet: string }>()
-  const [wallet, setWallet] = useState<string | null>(null)
+  const { wallet, setWallet } = useWallet() // Berieme adresu z globálneho skladu
+
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
@@ -31,21 +26,6 @@ export default function DashboardScreen() {
     priceDay: '0', priceWeek: '0', priceMonth: '0', priceYear: '0',
     registryPda: null as string | null,
   })
-
-  // 1. Získanie adresy z parametrov ALEBO z pamäte zariadenia
-  useEffect(() => {
-    const initWallet = async () => {
-      let addr = params.wallet;
-      if (!addr || addr === 'undefined') {
-        addr = await AsyncStorage.getItem('wallet_addr') || '';
-      }
-      if (addr) {
-        setWallet(addr);
-        await AsyncStorage.setItem('wallet_addr', addr);
-      }
-    };
-    initWallet();
-  }, [params.wallet]);
 
   const fetchData = useCallback(async () => {
     if (!wallet) return;
@@ -63,30 +43,21 @@ export default function DashboardScreen() {
       try { hVal = (await conn.getTokenAccountBalance(hahicoAta)).value.uiAmount || 0; } catch(e) {}
       setBalances({ sol: sol/LAMPORTS_PER_SOL, usdc: uVal, hahico: hVal });
 
-      const accounts = await conn.getProgramAccounts(PROGRAM_ID, {
-        filters: [{ memcmp: { offset: 8, bytes: wallet } }]
-      });
-
+      const accounts = await conn.getProgramAccounts(PROGRAM_ID, { filters: [{ memcmp: { offset: 8, bytes: wallet } }] });
       if (accounts.length > 0) {
         const data = accounts[0].account.data;
         setSettings({
           registryPda: accounts[0].pubkey.toBase58(),
-          subEnabled: data[73] === 1,
-          hahicoEnabled: data[72] === 1,
-          plansMask: data[74],
-          defaultPlan: data[75],
+          subEnabled: data[73] === 1, hahicoEnabled: data[72] === 1,
+          plansMask: data[74], defaultPlan: data[75],
           priceDay: (Number(data.readBigUInt64LE(76)) / 1_000_000).toString(),
           priceWeek: (Number(data.readBigUInt64LE(84)) / 1_000_000).toString(),
           priceMonth: (Number(data.readBigUInt64LE(92)) / 1_000_000).toString(),
           priceYear: (Number(data.readBigUInt64LE(100)) / 1_000_000).toString(),
         });
       }
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+    } catch (error) { console.error('Fetch error:', error); }
+    finally { setLoading(false); setRefreshing(false); }
   }, [wallet]);
 
   useEffect(() => { if (wallet) fetchData(); }, [wallet, fetchData]);
@@ -96,10 +67,7 @@ export default function DashboardScreen() {
     setSaving(true);
     try {
       await transact(async (walletAdapter) => {
-        const auth = await walletAdapter.authorize({
-          cluster: 'devnet',
-          identity: { name: 'SubscribeSol', uri: 'https://subscribesol.com' }
-        });
+        const auth = await walletAdapter.authorize({ cluster: 'devnet', identity: { name: 'SubscribeSol', uri: 'https://subscribesol.com' } });
         const merchantPk = new PublicKey(Buffer.from(auth.accounts[0].address, 'base64'));
 
         const data = Buffer.alloc(44);
@@ -125,31 +93,30 @@ export default function DashboardScreen() {
         tx.feePayer = merchantPk; tx.recentBlockhash = blockhash;
 
         await walletAdapter.signAndSendTransactions({ transactions: [tx] });
-        Alert.alert('Success', 'Profile updated on-chain!');
-        setIsEditing(false);
-        fetchData();
+        Alert.alert('Success', 'Settings updated!');
+        setIsEditing(false); fetchData();
       });
     } catch (e: any) { Alert.alert('Error', e.message); }
     finally { setSaving(false); }
   };
 
-  if (!wallet && loading) return <View style={styles.container}><ActivityIndicator color="#2DD4BF" size="large" style={{flex:1}}/></View>;
+  const handleLogout = () => {
+    setWallet(null);
+    router.replace('/');
+  };
 
   return (
     <View style={styles.container}>
       <LinearGradient colors={['#0F111A', '#08090F']} style={StyleSheet.absoluteFill} />
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.header}>
-          <View>
-            <Text style={styles.headerTitle}>Merchant Dashboard</Text>
-            <Text style={styles.slugText}>@bee-in</Text>
-          </View>
-          <Pressable onPress={async () => { await AsyncStorage.clear(); router.replace('/'); }}><Text style={styles.logoutTxt}>Logout</Text></Pressable>
+          <View><Text style={styles.headerTitle}>Dashboard</Text><Text style={styles.slugText}>@bee-in</Text></View>
+          <Pressable onPress={handleLogout}><Text style={styles.logoutTxt}>Logout</Text></Pressable>
         </View>
 
         <ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => {setRefreshing(true); fetchData();}} tintColor="#2DD4BF" />}>
           <View style={styles.walletCard}>
-            <Text style={styles.cardSmallLabel}>CONNECTED WALLET: {wallet ? `${wallet.slice(0, 4)}...${wallet.slice(-4)}` : '---'}</Text>
+            <Text style={styles.cardSmallLabel}>WALLET: {wallet ? `${wallet.slice(0, 6)}...${wallet.slice(-6)}` : '---'}</Text>
             <View style={styles.balancesRow}>
               <View style={styles.balBox}><Text style={styles.balVal}>{balances.sol.toFixed(2)}</Text><Text style={styles.balUnit}>SOL</Text></View>
               <View style={styles.balBox}><Text style={styles.balVal}>{balances.usdc.toFixed(2)}</Text><Text style={styles.balUnit}>USDC</Text></View>
@@ -160,14 +127,14 @@ export default function DashboardScreen() {
           {!isEditing ? (
             <View style={styles.planSummaryCard}>
               <Text style={styles.sectionTitle}>Plan Summary</Text>
-              <Text style={styles.sumText}>Default Plan: {settings.defaultPlan === 1 ? 'Daily' : settings.defaultPlan === 2 ? 'Weekly' : settings.defaultPlan === 4 ? 'Monthly' : 'Yearly'}</Text>
+              <Text style={styles.sumText}>Default Interval: {settings.defaultPlan === 1 ? 'Daily' : settings.defaultPlan === 2 ? 'Weekly' : settings.defaultPlan === 4 ? 'Monthly' : 'Yearly'}</Text>
               <Pressable style={styles.mainActionBtn} onPress={() => setIsEditing(true)}>
                 <LinearGradient colors={['#2DD4BF', '#8B5CF6']} start={{x:0,y:0}} end={{x:1,y:0}} style={styles.btnGradient}><Text style={styles.btnText}>Edit Subscription Plan</Text></LinearGradient>
               </Pressable>
             </View>
           ) : (
             <View style={styles.editSection}>
-              <Text style={styles.sectionTitle}>Plans & Prices (USDC)</Text>
+              <Text style={styles.sectionTitle}>Prices (USDC)</Text>
               {[
                 { label: 'Daily', mask: 1, key: 'priceDay' as const }, { label: 'Weekly', mask: 2, key: 'priceWeek' as const },
                 { label: 'Monthly', mask: 4, key: 'priceMonth' as const }, { label: 'Yearly', mask: 8, key: 'priceYear' as const },
@@ -182,7 +149,7 @@ export default function DashboardScreen() {
                   </View>
                 )
               })}
-              <Pressable style={styles.saveBtn} onPress={saveOnChain} disabled={saving}>{saving ? <ActivityIndicator color="#000"/> : <Text style={styles.saveBtnText}>Save Settings On-Chain</Text>}</Pressable>
+              <Pressable style={styles.saveBtn} onPress={saveOnChain} disabled={saving}>{saving ? <ActivityIndicator color="#000"/> : <Text style={styles.saveBtnText}>Save Settings</Text>}</Pressable>
               <Pressable onPress={() => setIsEditing(false)} style={{ marginTop: 15, alignItems: 'center' }}><Text style={{ color: '#475569' }}>Cancel</Text></Pressable>
             </View>
           )}
@@ -194,13 +161,13 @@ export default function DashboardScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#08090F' }, safeArea: { flex: 1 }, header: { flexDirection: 'row', justifyContent: 'space-between', padding: 24, alignItems: 'center' },
-  headerTitle: { color: '#94A3B8', fontSize: 12, fontWeight: '700' }, slugText: { color: '#2DD4BF', fontSize: 18, fontWeight: '800' }, logoutTxt: { color: '#EF4444' },
+  headerTitle: { color: '#94A3B8', fontSize: 12, fontWeight: '700' }, slugText: { color: '#2DD4BF', fontSize: 18, fontWeight: '800' }, logoutTxt: { color: '#EF4444', fontWeight: '600' },
   content: { padding: 20 }, walletCard: { backgroundColor: 'rgba(255,255,255,0.03)', padding: 20, borderRadius: 24, marginBottom: 25 },
   cardSmallLabel: { color: '#475569', fontSize: 10, fontWeight: '700', letterSpacing: 1, marginBottom: 12 }, balancesRow: { flexDirection: 'row', justifyContent: 'space-between' },
   balBox: { alignItems: 'center' }, balVal: { color: '#FFF', fontSize: 22, fontWeight: '900' }, balUnit: { color: '#94A3B8', fontSize: 10 },
   sectionTitle: { color: '#FFF', fontSize: 18, fontWeight: '700', marginBottom: 15 }, planSummaryCard: { backgroundColor: 'rgba(255,255,255,0.02)', padding: 24, borderRadius: 24 },
-  sumText: { color: '#94A3B8', marginBottom: 8 }, mainActionBtn: { height: 56, borderRadius: 16, overflow: 'hidden', marginTop: 15 },
-  btnGradient: { flex: 1, justifyContent: 'center', alignItems: 'center' }, btnText: { color: '#FFF', fontWeight: '700' },
+  sumText: { color: '#94A3B8', fontSize: 14, marginBottom: 8 }, mainActionBtn: { height: 56, borderRadius: 16, overflow: 'hidden', marginTop: 15 },
+  btnGradient: { flex: 1, justifyContent: 'center', alignItems: 'center' }, btnText: { color: '#FFF', fontWeight: '700', fontSize: 16 },
   editSection: { paddingBottom: 20 }, priceRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 },
   pLabel: { color: '#94A3B8', width: 55 }, input: { flex: 1, backgroundColor: 'rgba(255,255,255,0.05)', height: 44, borderRadius: 12, color: '#FFF', textAlign: 'center' },
   defBtn: { paddingHorizontal: 10, height: 44, justifyContent: 'center', borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.05)' }, defBtnAct: { backgroundColor: '#2DD4BF' }, defText: { color: '#FFF', fontSize: 10 },

@@ -1,8 +1,15 @@
-import 'react-native-get-random-values';
 import { Buffer } from 'buffer';
+import 'react-native-get-random-values';
 import 'react-native-url-polyfill/auto';
 
-// @ts-ignore
-global.Buffer = global.Buffer || Buffer;
+// Globálna inicializácia Bufferu pre všetky knižnice
+if (typeof global.Buffer === 'undefined') {
+  global.Buffer = Buffer;
+}
 
-console.log('[Polyfill] Minimal baseline loaded');
+// Fix pre process, ktorý niektoré Solana knižnice vyžadujú
+if (typeof global.process === 'undefined') {
+  global.process = require('process');
+}
+
+console.log('[Polyfill] Solana & Buffer environment ready');
