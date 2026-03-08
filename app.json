@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "SubscribeSol Merchant",
+    "slug": "subscribesol-merchant",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "subscribesol",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": false,
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0F111A",
+        "foregroundImage": "./assets/images/icon.png"
+      },
+      "package": "com.subscribesol.merchant"
+    },
+    "plugins": [
+      "expo-router"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
